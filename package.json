@@ -5,7 +5,7 @@
   "main": "electron/main.js",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"vite --port 5173 --strictPort\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev": "node tools/dev.mjs",
     "build": "vite build",
     "test": "node tools/strategy_selftest.mjs",
     "start": "electron .",

@@ -1,5 +1,7 @@
 # Video Dedupe Desktop (Demo)
 
+项目结构与入口说明见：`PROJECT_CODE.md`
+
 ## 开发运行
 
 ```bash
