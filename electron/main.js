@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session, Menu } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
@@ -11,6 +11,97 @@ const __dirname = path.dirname(__filename);
 const isDev = !app.isPackaged;
 const publishPartition = "persist:publish";
 let publishWindow = null;
+
+function attachPublishNavigation(win) {
+  const wc = win.webContents;
+
+  // Add browser-like navigation without changing the page UI:
+  // - keyboard shortcuts (Cmd/Ctrl + [ / ] / R)
+  // - right-click context menu (Back/Forward/Reload)
+  wc.on("before-input-event", (event, input) => {
+    const key = String(input.key || "");
+    const isMac = process.platform === "darwin";
+    const cmdOrCtrl = isMac ? input.meta : input.control;
+
+    // Back/Forward
+    if (!input.alt && cmdOrCtrl && !input.shift && (key === "[" || key === "]")) {
+      if (key === "[" && wc.canGoBack()) wc.goBack();
+      if (key === "]" && wc.canGoForward()) wc.goForward();
+      event.preventDefault();
+      return;
+    }
+
+    // Reload / Force reload
+    if (!input.alt && cmdOrCtrl && key.toLowerCase() === "r") {
+      if (input.shift) wc.reloadIgnoringCache();
+      else wc.reload();
+      event.preventDefault();
+      return;
+    }
+
+    // Windows/Linux common shortcuts
+    if (!isMac && input.alt && !input.control && !input.meta && (key === "Left" || key === "Right")) {
+      if (key === "Left" && wc.canGoBack()) wc.goBack();
+      if (key === "Right" && wc.canGoForward()) wc.goForward();
+      event.preventDefault();
+      return;
+    }
+
+    // F5 reload
+    if (key === "F5") {
+      if (input.shift) wc.reloadIgnoringCache();
+      else wc.reload();
+      event.preventDefault();
+    }
+  });
+
+  wc.on("context-menu", () => {
+    const template = [
+      {
+        label: "Back",
+        enabled: wc.canGoBack(),
+        accelerator: process.platform === "darwin" ? "Command+[" : "Alt+Left",
+        click: () => wc.goBack()
+      },
+      {
+        label: "Forward",
+        enabled: wc.canGoForward(),
+        accelerator: process.platform === "darwin" ? "Command+]" : "Alt+Right",
+        click: () => wc.goForward()
+      },
+      { type: "separator" },
+      {
+        label: "Reload",
+        accelerator: "CmdOrCtrl+R",
+        click: () => wc.reload()
+      },
+      {
+        label: "Force Reload",
+        accelerator: "CmdOrCtrl+Shift+R",
+        click: () => wc.reloadIgnoringCache()
+      },
+      { type: "separator" },
+      {
+        label: "Close Window",
+        accelerator: "CmdOrCtrl+W",
+        click: () => win.close()
+      }
+    ];
+
+    if (isDev) {
+      template.push(
+        { type: "separator" },
+        {
+          label: "DevTools",
+          accelerator: process.platform === "darwin" ? "Alt+Command+I" : "Ctrl+Shift+I",
+          click: () => wc.openDevTools({ mode: "detach" })
+        }
+      );
+    }
+
+    Menu.buildFromTemplate(template).popup({ window: win });
+  });
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -54,6 +145,7 @@ function openPublishWindow(url) {
     publishWindow = null;
   });
 
+  attachPublishNavigation(publishWindow);
   publishWindow.loadURL(url);
   return publishWindow;
 }
