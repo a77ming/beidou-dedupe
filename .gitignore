@@ -10,7 +10,7 @@ pnpm-debug.log*
 
 # Build outputs
 dist/
-renderer/
+/renderer/
 release/
 win-unpacked/
 mac-arm64/
@@ -25,4 +25,3 @@ builder-effective-config.yaml
 python-runtime/
 **/__pycache__/
 *.pyc
-
