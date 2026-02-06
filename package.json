@@ -1,0 +1,56 @@
+{
+  "name": "beidou-dedupe-tool",
+  "private": true,
+  "version": "0.1.2",
+  "main": "electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite --port 5173 --strictPort\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build",
+    "test": "node tools/strategy_selftest.mjs",
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.0",
+    "concurrently": "^8.2.2",
+    "electron": "^28.2.3",
+    "electron-builder": "^24.9.1",
+    "vite": "^5.2.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.ming.videodedupe",
+    "productName": "北斗去重工具",
+    "files": [
+      "renderer/**/*",
+      "electron/**/*",
+      "tools/**/*",
+      "processor/**/*",
+      "config.json",
+      "strategies.json",
+      "strategies_to_validate.txt",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "tools/**/*",
+      "processor/**/*"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "icon": "build/icon.icns"
+    }
+  }
+}

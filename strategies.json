@@ -1,0 +1,24 @@
+{
+  "source": "local",
+  "version": "0.1.0",
+  "strategies": [
+    {
+      "key": "hash-md5",
+      "name": "MD5 指纹",
+      "description": "对文件内容做 MD5 指纹，相同视为重复。",
+      "atomic": true
+    },
+    {
+      "key": "size-bytes",
+      "name": "文件大小",
+      "description": "文件大小完全一致视为重复。",
+      "atomic": true
+    },
+    {
+      "key": "name-only",
+      "name": "文件名",
+      "description": "文件名一致（忽略大小写）视为重复。",
+      "atomic": true
+    }
+  ]
+}
