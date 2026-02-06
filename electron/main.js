@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session, Menu } from "electron";
+import { app, BrowserWindow, BrowserView, dialog, ipcMain, Menu } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
@@ -10,15 +10,32 @@ const __dirname = path.dirname(__filename);
 
 const isDev = !app.isPackaged;
 const publishPartition = "persist:publish";
+let mainWindow = null;
 let publishWindow = null;
+let publishView = null;
 
-function attachPublishNavigation(win) {
-  const wc = win.webContents;
+const PUBLISH_TOOLBAR_HEIGHT = 44;
+
+function setPublishViewBounds() {
+  if (!publishWindow || publishWindow.isDestroyed()) return;
+  if (!publishView) return;
+
+  const b = publishWindow.getContentBounds();
+  publishView.setBounds({
+    x: 0,
+    y: PUBLISH_TOOLBAR_HEIGHT,
+    width: b.width,
+    height: Math.max(0, b.height - PUBLISH_TOOLBAR_HEIGHT)
+  });
+}
+
+function attachPublishNavigation(win, view) {
+  const wc = view.webContents;
 
   // Add browser-like navigation without changing the page UI:
   // - keyboard shortcuts (Cmd/Ctrl + [ / ] / R)
   // - right-click context menu (Back/Forward/Reload)
-  wc.on("before-input-event", (event, input) => {
+  win.webContents.on("before-input-event", (event, input) => {
     const key = String(input.key || "");
     const isMac = process.platform === "darwin";
     const cmdOrCtrl = isMac ? input.meta : input.control;
@@ -104,7 +121,7 @@ function attachPublishNavigation(win) {
 }
 
 function createWindow() {
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1100,
     height: 760,
     webPreferences: {
@@ -116,37 +133,71 @@ function createWindow() {
 
   if (isDev) {
     const devUrl = process.env.VITE_DEV_SERVER_URL || "http://localhost:5173";
-    win.loadURL(devUrl);
-    win.webContents.openDevTools({ mode: "detach" });
+    mainWindow.loadURL(devUrl);
+    mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
-    win.loadFile(path.join(app.getAppPath(), "renderer", "index.html"));
+    mainWindow.loadFile(path.join(app.getAppPath(), "renderer", "index.html"));
   }
+
+  return mainWindow;
 }
 
 function openPublishWindow(url) {
   if (publishWindow && !publishWindow.isDestroyed()) {
-    publishWindow.loadURL(url);
+    if (publishView && !publishView.webContents.isDestroyed()) {
+      publishView.webContents.loadURL(url);
+    }
     publishWindow.show();
+    publishWindow.focus();
     return publishWindow;
   }
 
-  const publishSession = session.fromPartition(publishPartition);
   publishWindow = new BrowserWindow({
     width: 1100,
     height: 760,
     webPreferences: {
+      preload: path.join(__dirname, "publish_shell_preload.cjs"),
       contextIsolation: true,
-      nodeIntegration: false,
-      session: publishSession
+      nodeIntegration: false
     }
   });
 
+  publishWindow.setMenuBarVisibility(false);
+
   publishWindow.on("closed", () => {
     publishWindow = null;
+    publishView = null;
   });
 
-  attachPublishNavigation(publishWindow);
-  publishWindow.loadURL(url);
+  publishWindow.on("resize", setPublishViewBounds);
+  publishWindow.on("maximize", setPublishViewBounds);
+  publishWindow.on("unmaximize", setPublishViewBounds);
+  publishWindow.on("enter-full-screen", setPublishViewBounds);
+  publishWindow.on("leave-full-screen", setPublishViewBounds);
+
+  // Shell window hosts a fixed toolbar and a BrowserView for the remote publish site.
+  publishWindow.loadFile(path.join(__dirname, "publish_shell.html"));
+
+  publishView = new BrowserView({
+    webPreferences: {
+      partition: publishPartition,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  // Keep navigation inside the same publish view so users don't get stuck
+  // in newly-opened windows without controls.
+  publishView.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+    if (targetUrl) publishView.webContents.loadURL(targetUrl);
+    return { action: "deny" };
+  });
+  publishWindow.setBrowserView(publishView);
+  setPublishViewBounds();
+
+  attachPublishNavigation(publishWindow, publishView);
+  publishView.webContents.loadURL(url);
+
   return publishWindow;
 }
 
@@ -398,11 +449,54 @@ ipcMain.handle("open-publish-page", async () => {
   return true;
 });
 
+ipcMain.handle("publish-nav", async (_event, action) => {
+  if (!publishWindow || publishWindow.isDestroyed() || !publishView) return false;
+  const wc = publishView.webContents;
+  if (wc.isDestroyed()) return false;
+
+  switch (action) {
+    case "back":
+      if (wc.canGoBack()) wc.goBack();
+      return true;
+    case "forward":
+      if (wc.canGoForward()) wc.goForward();
+      return true;
+    case "reload":
+      wc.reload();
+      return true;
+    case "force-reload":
+      wc.reloadIgnoringCache();
+      return true;
+    case "back-to-app":
+      // Close the publish window and bring the main window to front.
+      if (publishWindow && !publishWindow.isDestroyed()) publishWindow.close();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+        mainWindow.focus();
+      } else if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+      return true;
+    default:
+      return false;
+  }
+});
+
+ipcMain.handle("publish-nav-state", async () => {
+  if (!publishWindow || publishWindow.isDestroyed() || !publishView) {
+    return { canGoBack: false, canGoForward: false, url: "" };
+  }
+  const wc = publishView.webContents;
+  if (wc.isDestroyed()) return { canGoBack: false, canGoForward: false, url: "" };
+  return { canGoBack: wc.canGoBack(), canGoForward: wc.canGoForward(), url: wc.getURL() || "" };
+});
+
 ipcMain.handle("close-publish", async () => {
   if (publishWindow && !publishWindow.isDestroyed()) {
     publishWindow.close();
   }
   publishWindow = null;
+  publishView = null;
   return true;
 });
 
@@ -412,10 +506,11 @@ ipcMain.handle("publish-files", async (_event, payload) => {
     return { error: "No publish files." };
   }
 
-  const win = openPublishWindow("https://publish.inbeidou.cn/publish/release");
-  await waitForLoad(win.webContents);
+  openPublishWindow("https://publish.inbeidou.cn/publish/release");
+  if (!publishView) return { error: "Publish view not available." };
+  await waitForLoad(publishView.webContents);
 
-  await win.webContents.executeJavaScript(
+  await publishView.webContents.executeJavaScript(
     `(function(){const el=document.querySelector('textarea');if(el){el.value=${JSON.stringify(
       caption || ""
     )};el.dispatchEvent(new Event('input',{bubbles:true}));return true;}const ed=document.querySelector('[contenteditable=\"true\"]');if(ed){ed.innerText=${JSON.stringify(
@@ -423,7 +518,7 @@ ipcMain.handle("publish-files", async (_event, payload) => {
     )};ed.dispatchEvent(new Event('input',{bubbles:true}));return true;}return false;})()`
   );
 
-  const inputFound = await win.webContents.executeJavaScript(
+  const inputFound = await publishView.webContents.executeJavaScript(
     `(function(){const input=document.querySelector('input[type=\"file\"]');if(input){input.focus();return true;}return false;})()`
   );
 
@@ -431,7 +526,7 @@ ipcMain.handle("publish-files", async (_event, payload) => {
     return { error: "File input not found on publish page." };
   }
 
-  win.webContents.setFileInputFiles(filePaths);
+  publishView.webContents.setFileInputFiles(filePaths);
   return { ok: true };
 });
 

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Publish</title>
+    <style>
+      :root {
+        --h: 44px;
+        --bg: #f7f7f7;
+        --fg: #111;
+        --muted: rgba(0, 0, 0, 0.45);
+        --bd: rgba(0, 0, 0, 0.1);
+        --btn: rgba(0, 0, 0, 0.06);
+        --btnHover: rgba(0, 0, 0, 0.1);
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        color: var(--fg);
+        background: #fff;
+      }
+      .toolbar {
+        height: var(--h);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 10px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--bd);
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-app-region: drag;
+      }
+      .group {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        -webkit-app-region: no-drag;
+      }
+      button {
+        height: 30px;
+        min-width: 34px;
+        border: 1px solid var(--bd);
+        background: var(--btn);
+        border-radius: 8px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 8px;
+        color: var(--fg);
+      }
+      button:hover {
+        background: var(--btnHover);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .icon {
+        width: 16px;
+        height: 16px;
+        fill: currentColor;
+      }
+      .url {
+        flex: 1;
+        font-size: 12px;
+        color: var(--muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        -webkit-app-region: no-drag;
+      }
+      .spacer {
+        flex: 1;
+      }
+      .backApp {
+        font-size: 12px;
+        padding: 0 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <div class="group">
+        <button id="back" title="Back (Cmd+[ / Alt+Left)" disabled>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+          </svg>
+        </button>
+        <button id="forward" title="Forward (Cmd+] / Alt+Right)" disabled>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z" />
+          </svg>
+        </button>
+        <button id="reload" title="Reload (Cmd+R / F5)">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 12.65-5.65z"
+            />
+          </svg>
+        </button>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="group">
+        <button id="backToApp" class="backApp" title="Back to app (Close publish window)">一键回到软件</button>
+      </div>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const backBtn = $("back");
+      const forwardBtn = $("forward");
+      const reloadBtn = $("reload");
+      const backToAppBtn = $("backToApp");
+
+      async function nav(action) {
+        try {
+          await window.publishShell?.nav(action);
+        } catch {
+          // ignore
+        }
+      }
+
+      backBtn.addEventListener("click", () => nav("back"));
+      forwardBtn.addEventListener("click", () => nav("forward"));
+      reloadBtn.addEventListener("click", () => nav("reload"));
+      backToAppBtn.addEventListener("click", () => nav("back-to-app"));
+
+      async function refreshState() {
+        try {
+          const s = await window.publishShell?.state();
+          if (!s) return;
+          backBtn.disabled = !s.canGoBack;
+          forwardBtn.disabled = !s.canGoForward;
+        } catch {
+          // ignore
+        }
+      }
+
+      refreshState();
+      setInterval(refreshState, 350);
+    </script>
+  </body>
+</html>
