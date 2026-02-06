@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require("electron");
+const { pathToFileURL } = require("node:url");
 
 contextBridge.exposeInMainWorld("api", {
   selectVideos: () => ipcRenderer.invoke("select-videos"),
@@ -11,5 +12,14 @@ contextBridge.exposeInMainWorld("api", {
   openPublishLogin: () => ipcRenderer.invoke("open-publish-login"),
   openPublishPage: () => ipcRenderer.invoke("open-publish-page"),
   closePublish: () => ipcRenderer.invoke("close-publish"),
-  publishFiles: (payload) => ipcRenderer.invoke("publish-files", payload)
+  publishFiles: (payload) => ipcRenderer.invoke("publish-files", payload),
+  showItemInFolder: (filePath) => ipcRenderer.invoke("show-item-in-folder", filePath),
+  toFileUrl: (filePath) => {
+    try {
+      if (!filePath) return "";
+      return pathToFileURL(String(filePath)).href;
+    } catch {
+      return "";
+    }
+  }
 });

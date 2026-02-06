@@ -1,4 +1,4 @@
-import { app, BrowserWindow, BrowserView, dialog, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, BrowserView, dialog, ipcMain, Menu, shell } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
@@ -439,6 +439,29 @@ ipcMain.handle("select-output-dir", async () => {
   return result.filePaths[0] || null;
 });
 
+ipcMain.handle("show-item-in-folder", async (_event, filePath) => {
+  if (!filePath || typeof filePath !== "string") return false;
+  try {
+    // If it's a directory, open it directly; if it's a file, reveal it in the folder.
+    if (fs.existsSync(filePath)) {
+      try {
+        const st = fs.statSync(filePath);
+        if (st.isDirectory()) {
+          await shell.openPath(filePath);
+          return true;
+        }
+      } catch {
+        // fall back to reveal
+      }
+    }
+
+    shell.showItemInFolder(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
 ipcMain.handle("open-publish-login", async () => {
   openPublishWindow("https://publish.inbeidou.cn/publish/login");
   return true;
@@ -659,11 +682,8 @@ ipcMain.handle("run-dedupe", async (_event, payload) => {
   }
   const pythonPath = runtime.activePython;
   const processorScript = resolveUnpackedPath(path.join("tools", "process_video.py"));
-  const dedupedDir =
-    String(path.basename(outputDir || "")).toLowerCase() === "deduped"
-      ? outputDir
-      : path.join(outputDir, "deduped");
-  await fs.promises.mkdir(dedupedDir, { recursive: true });
+  // Deliver outputs directly into the selected output directory (no extra "deduped" folder).
+  await fs.promises.mkdir(outputDir, { recursive: true });
 
   const processedFiles = [];
   const failedFiles = [];
@@ -675,7 +695,7 @@ ipcMain.handle("run-dedupe", async (_event, payload) => {
         scriptPath: processorScript,
         processorRoot,
         inputPath: filePath,
-        outputDir: dedupedDir,
+        outputDir,
         strategyPayload
       });
       processedFiles.push(outputPath);
@@ -702,7 +722,7 @@ ipcMain.handle("run-dedupe", async (_event, payload) => {
     failedFiles,
     reportPath,
     outputSummary: {
-      outputDir: dedupedDir,
+      outputDir,
       processedCount: processedFiles.length,
       failedCount: failedFiles.length
     }
