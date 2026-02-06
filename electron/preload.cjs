@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("api", {
   closePublish: () => ipcRenderer.invoke("close-publish"),
   publishFiles: (payload) => ipcRenderer.invoke("publish-files", payload),
   showItemInFolder: (filePath) => ipcRenderer.invoke("show-item-in-folder", filePath),
+  openVideoPreview: (filePath) => ipcRenderer.invoke("open-video-preview", filePath),
   toFileUrl: (filePath) => {
     try {
       if (!filePath) return "";
