@@ -2,7 +2,7 @@ import { app, BrowserWindow, BrowserView, dialog, ipcMain, Menu, shell } from "e
 import path from "node:path";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { groupDuplicates } from "./dedupe.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -13,7 +13,6 @@ const publishPartition = "persist:publish";
 let mainWindow = null;
 let publishWindow = null;
 let publishView = null;
-let previewWindow = null;
 
 const PUBLISH_TOOLBAR_HEIGHT = 44;
 
@@ -457,35 +456,6 @@ ipcMain.handle("show-item-in-folder", async (_event, filePath) => {
     }
 
     shell.showItemInFolder(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-});
-
-ipcMain.handle("open-video-preview", async (_event, filePath) => {
-  if (!filePath || typeof filePath !== "string") return false;
-  try {
-    if (!previewWindow || previewWindow.isDestroyed()) {
-      previewWindow = new BrowserWindow({
-        width: 860,
-        height: 540,
-        title: "视频预览",
-        autoHideMenuBar: true,
-        webPreferences: {
-          contextIsolation: true,
-          nodeIntegration: false
-        }
-      });
-      previewWindow.on("closed", () => {
-        previewWindow = null;
-      });
-    }
-
-    const href = pathToFileURL(filePath).href;
-    await previewWindow.loadURL(href);
-    previewWindow.show();
-    previewWindow.focus();
     return true;
   } catch {
     return false;
