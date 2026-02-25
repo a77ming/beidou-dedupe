@@ -58,14 +58,16 @@ def normalize_params(raw: dict) -> dict:
     if params.get("displacement_params") is not None:
         params["enable_displacement"] = True
 
-    # Coerce output CRF to min 28 like auto_processor
+    # Ensure output_crf is in valid range (18-35), default to 23 for good quality/size balance
     if "output_crf" in params:
         try:
-            crf = int(params.get("output_crf") or 0)
-            if crf < 28:
-                params["output_crf"] = 28
+            crf = int(params.get("output_crf") or 23)
+            params["output_crf"] = max(18, min(35, crf))
         except Exception:
-            params.pop("output_crf", None)
+            params["output_crf"] = 23
+    else:
+        # Default CRF for good quality with reasonable file size
+        params["output_crf"] = 23
 
     return params
 

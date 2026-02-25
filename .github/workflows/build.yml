@@ -1,0 +1,110 @@
+name: Build Desktop App
+
+on:
+  push:
+    tags:
+      - 'v*'  # 推送 v 开头的 tag 时触发，如 v0.1.0
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Python processor
+        run: bash tools/build_processor_macos_arm64.sh
+
+      - name: Build Electron app
+        run: npx electron-builder --mac --publish never
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: |
+            release/*.dmg
+            release/*.zip
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Python processor (Windows)
+        shell: bash
+        run: |
+          python -m venv .build/processor-win64/venv
+          .build/processor-win64/venv/Scripts/pip install pyinstaller moviepy opencv-python Pillow numpy imageio-ffmpeg
+          .build/processor-win64/venv/Scripts/pyinstaller --onefile --name video_dedupe_processor --distpath build/bin --workpath .build/processor-win64/work --specpath .build/processor-win64/spec tools/process_video.py
+
+      - name: Build Electron app
+        run: npx electron-builder --win --publish never
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            release/*.exe
+            release/*.msi
+
+  release:
+    needs: [build-mac, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download macOS build
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: release/
+
+      - name: Download Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1024,13 +1024,20 @@ class VideoProcessor:
             logger.info(f"Preview mode: limiting output to {output_duration:.2f} seconds")
             processed_clip = processed_clip.subclipped(0, output_duration)
 
+        # Use CRF mode for better quality/size balance (instead of fixed bitrate)
+        # CRF 23 is default, higher = smaller file but lower quality
+        crf_value = max(18, min(35, output_crf))  # Clamp CRF to valid range
+        preset = output_preset if output_preset else X264_PRESET
+
         processed_clip.write_videofile(
             output_path,
             codec=VIDEO_CODEC,
             audio_codec=AUDIO_CODEC,
-            bitrate=BITRATE,
             fps=info['fps'],
-            ffmpeg_params=["-preset", X264_PRESET],
+            ffmpeg_params=[
+                "-preset", preset,
+                "-crf", str(crf_value),
+            ],
             logger=None  # Disable moviepy's logger
         )
 

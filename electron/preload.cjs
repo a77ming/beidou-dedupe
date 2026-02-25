@@ -12,5 +12,6 @@ contextBridge.exposeInMainWorld("api", {
   openPublishPage: () => ipcRenderer.invoke("open-publish-page"),
   closePublish: () => ipcRenderer.invoke("close-publish"),
   publishFiles: (payload) => ipcRenderer.invoke("publish-files", payload),
-  showItemInFolder: (filePath) => ipcRenderer.invoke("show-item-in-folder", filePath)
+  showItemInFolder: (filePath) => ipcRenderer.invoke("show-item-in-folder", filePath),
+  openPath: (targetPath) => ipcRenderer.invoke("open-path", targetPath)
 });

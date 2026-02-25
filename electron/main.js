@@ -285,6 +285,19 @@ function getVenvPython(venvDir) {
   return path.join(venvDir, "bin", "python");
 }
 
+function getBundledProcessorBinary() {
+  // Packaged builds can ship a self-contained processor binary so end-users
+  // don't need Python/pip. See tools/build_processor_macos_arm64.sh.
+  const name = process.platform === "win32" ? "video_dedupe_processor.exe" : "video_dedupe_processor";
+  const p = path.join(process.resourcesPath, "processor-bin", name);
+  try {
+    if (fs.existsSync(p)) return p;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 function spawnCapture(command, args, opts = {}) {
   return new Promise((resolve) => {
     const child = spawn(command, args, { ...opts, stdio: ["ignore", "pipe", "pipe"] });
@@ -337,6 +350,17 @@ async function ensureRuntime() {
     };
   }
 
+  const bundledProcessor = getBundledProcessorBinary();
+  if (bundledProcessor) {
+    return {
+      ok: true,
+      error: null,
+      processorRoot,
+      mode: "bundled",
+      bundledProcessor
+    };
+  }
+
   const basePython = findBasePython();
   const venvDir = getVenvDir();
   const venvPython = getVenvPython(venvDir);
@@ -372,6 +396,11 @@ async function installRuntime() {
   const processorRoot = getEffectiveProcessorRoot();
   if (!processorRoot) {
     return { ok: false, error: "Processor runtime not found." };
+  }
+
+  const bundledProcessor = getBundledProcessorBinary();
+  if (bundledProcessor) {
+    return { ok: true, skipped: true, mode: "bundled", bundledProcessor };
   }
 
   const basePython = findBasePython();
@@ -680,8 +709,9 @@ ipcMain.handle("run-dedupe", async (_event, payload) => {
       error: `运行环境未就绪：${runtime.error || "Unknown error"}。请先点击「初始化环境」安装依赖。`
     };
   }
-  const pythonPath = runtime.activePython;
   const processorScript = resolveUnpackedPath(path.join("tools", "process_video.py"));
+  const bundledProcessor = runtime.mode === "bundled" ? runtime.bundledProcessor : null;
+  const pythonPath = bundledProcessor ? null : runtime.activePython;
   // Deliver outputs directly into the selected output directory (no extra "deduped" folder).
   await fs.promises.mkdir(outputDir, { recursive: true });
 
@@ -690,14 +720,22 @@ ipcMain.handle("run-dedupe", async (_event, payload) => {
 
   for (const filePath of files) {
     try {
-      const outputPath = await runPythonProcessor({
-        pythonPath,
-        scriptPath: processorScript,
-        processorRoot,
-        inputPath: filePath,
-        outputDir,
-        strategyPayload
-      });
+      const outputPath = bundledProcessor
+        ? await runBundledProcessor({
+            processorBin: bundledProcessor,
+            processorRoot,
+            inputPath: filePath,
+            outputDir,
+            strategyPayload
+          })
+        : await runPythonProcessor({
+            pythonPath,
+            scriptPath: processorScript,
+            processorRoot,
+            inputPath: filePath,
+            outputDir,
+            strategyPayload
+          });
       processedFiles.push(outputPath);
     } catch (err) {
       failedFiles.push({ file: filePath, error: String(err) });
@@ -714,6 +752,18 @@ ipcMain.handle("run-dedupe", async (_event, payload) => {
       failedCount: failedFiles.length
     }
   };
+});
+
+ipcMain.handle("open-path", async (_event, targetPath) => {
+  try {
+    const p = typeof targetPath === "string" ? targetPath : "";
+    if (!p) return { ok: false, error: "No path provided." };
+    const res = await shell.openPath(p);
+    if (res) return { ok: false, error: res };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 });
 
 async function uniqueCopyTarget(directory, sourcePath) {
@@ -778,7 +828,9 @@ function runPythonProcessor({ pythonPath, scriptPath, processorRoot, inputPath, 
         return;
       }
       try {
-        const result = JSON.parse(stdout.trim());
+        const lines = (stdout || "").trim().split("\n").filter(Boolean);
+        const last = lines.length ? lines[lines.length - 1] : "";
+        const result = JSON.parse(last || stdout.trim());
         if (!result.output_path) {
           reject(new Error("Processor returned no output path."));
           return;
@@ -787,6 +839,71 @@ function runPythonProcessor({ pythonPath, scriptPath, processorRoot, inputPath, 
       } catch (err) {
         const details = [
           `Failed to parse processor output: ${String(err)}`,
+          stderr ? `--- stderr ---\n${stderr.trim()}` : "",
+          stdout ? `--- stdout ---\n${stdout.trim()}` : ""
+        ]
+          .filter(Boolean)
+          .join("\n");
+        reject(new Error(details));
+      }
+    });
+  });
+}
+
+function runBundledProcessor({ processorBin, processorRoot, inputPath, outputDir, strategyPayload }) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      "--input",
+      inputPath,
+      "--output-dir",
+      outputDir,
+      "--strategy-json",
+      JSON.stringify(strategyPayload),
+      "--processor-root",
+      processorRoot
+    ];
+
+    // The onefile binary extracts to a temp dir and still needs a writable CWD for MoviePy temp files.
+    const child = spawn(processorBin, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      cwd: outputDir
+    });
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+    child.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+    child.on("error", (err) => {
+      reject(new Error(`Failed to start bundled processor: ${String(err)}`));
+    });
+    child.on("close", (code) => {
+      if (code !== 0) {
+        const combined = [
+          `Bundled processor exited with code ${code}.`,
+          stderr ? `--- stderr ---\n${stderr.trim()}` : "",
+          stdout ? `--- stdout ---\n${stdout.trim()}` : ""
+        ]
+          .filter(Boolean)
+          .join("\n");
+        reject(new Error(combined));
+        return;
+      }
+      try {
+        const lines = (stdout || "").trim().split("\n").filter(Boolean);
+        const last = lines.length ? lines[lines.length - 1] : "";
+        const result = JSON.parse(last || stdout.trim());
+        if (!result.output_path) {
+          reject(new Error("Bundled processor returned no output path."));
+          return;
+        }
+        resolve(result.output_path);
+      } catch (err) {
+        const details = [
+          `Failed to parse bundled processor output: ${String(err)}`,
           stderr ? `--- stderr ---\n${stderr.trim()}` : "",
           stdout ? `--- stdout ---\n${stdout.trim()}` : ""
         ]

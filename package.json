@@ -9,8 +9,12 @@
     "build": "vite build",
     "test": "node tools/strategy_selftest.mjs",
     "start": "electron .",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "build:processor:mac:arm64": "bash tools/build_processor_macos_arm64.sh",
+    "build:processor:win": "tools\\build_processor_windows.bat",
+    "pack": "node tools/ensure_processor.mjs && electron-builder --dir",
+    "dist": "node tools/ensure_processor.mjs && electron-builder",
+    "dist:mac:arm64": "npm run build && npm run build:processor:mac:arm64 && electron-builder --mac",
+    "dist:win": "npm run build && npm run build:processor:win && electron-builder --win"
   },
   "dependencies": {
     "react": "^18.2.0",
@@ -45,9 +49,21 @@
       "buildResources": "build",
       "output": "release"
     },
+    "extraResources": [
+      {
+        "from": "build/bin/video_dedupe_processor",
+        "to": "processor-bin/video_dedupe_processor"
+      }
+    ],
     "win": {
       "target": "nsis",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "extraResources": [
+        {
+          "from": "build/bin/video_dedupe_processor.exe",
+          "to": "processor-bin/video_dedupe_processor.exe"
+        }
+      ]
     },
     "mac": {
       "icon": "build/icon.icns"
