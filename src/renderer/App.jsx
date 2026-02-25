@@ -1,4 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import RuntimeBanner from "./components/RuntimeBanner.jsx";
+import QuickStart from "./components/QuickStart.jsx";
+import AdvancedTools from "./components/AdvancedTools.jsx";
+import ResultsPanel from "./components/ResultsPanel.jsx";
+import appLogo from "../../beidou.png";
 
 const fallbackStrategies = {
   source: "remote",
@@ -24,6 +29,10 @@ export default function App() {
   const [status, setStatus] = useState("等待选择视频...");
   const [loading, setLoading] = useState(false);
   const [refreshingStrategies, setRefreshingStrategies] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [showPublishModal, setShowPublishModal] = useState(false);
+
+  const strategySectionRef = useRef(null);
 
   const api = window.api;
 
@@ -32,15 +41,10 @@ export default function App() {
     [strategies, strategyKey]
   );
 
-  const processedCount = useMemo(
-    () => (result?.processedFiles ? result.processedFiles.length : 0),
-    [result]
-  );
-
-  const failedCount = useMemo(
-    () => (result?.failedFiles ? result.failedFiles.length : 0),
-    [result]
-  );
+  const selectedStrategyIndex = useMemo(() => {
+    const idx = strategies.findIndex((s) => s.key === strategyKey);
+    return idx >= 0 ? idx + 1 : null;
+  }, [strategies, strategyKey]);
 
   useEffect(() => {
     if (!api) {
@@ -149,6 +153,21 @@ export default function App() {
     setStatus("已选择输出目录。");
   };
 
+  const handleOpenPath = async (targetPath) => {
+    if (!targetPath) return;
+    if (!api?.openPath) {
+      // Fallback: no-op (older builds). We still keep UI stable.
+      setStatus("当前版本不支持打开目录。");
+      return;
+    }
+    try {
+      const res = await api.openPath(targetPath);
+      if (res?.ok === false) setStatus(`打开失败：${res?.error || "Unknown error"}`);
+    } catch (e) {
+      setStatus(`打开失败：${String(e)}`);
+    }
+  };
+
   const handleOpenPublish = async () => {
     if (!api?.openPublishLogin) return;
     await api.openPublishLogin();
@@ -204,6 +223,8 @@ export default function App() {
       else {
         setResult(res);
         setStatus("去重完成。");
+        // 任务完成后显示发布弹窗
+        setShowPublishModal(true);
       }
     } catch (e) {
       setStatus(`去重失败，请重试。${e ? ` 原因: ${String(e)}` : ""}`);
@@ -221,13 +242,55 @@ export default function App() {
     }
   };
 
+  const blockers = useMemo(() => {
+    const items = [];
+    if (files.length === 0) items.push("视频：未选择");
+    else items.push(`视频：已选择 ${files.length} 个`);
+
+    if (!outputDir) items.push("输出目录：未选择");
+    else items.push("输出目录：已选择");
+
+    if (!selectedStrategy?.payload) items.push("策略：未加载/未选择");
+    else items.push(`策略：已选择（#${selectedStrategyIndex ?? "?"}）`);
+
+    if (runtime && runtime.ok === false) items.push("环境：未就绪（请先初始化）");
+    else if (checkingRuntime) items.push("环境：检测中...");
+    else if (runtime == null) items.push("环境：未检测");
+    else items.push("环境：就绪");
+
+    if (loading) items.push("执行：进行中");
+    return items;
+  }, [checkingRuntime, files.length, loading, outputDir, runtime, selectedStrategy, selectedStrategyIndex]);
+
+  const canRun = useMemo(() => {
+    if (loading) return false;
+    if (files.length === 0) return false;
+    if (!outputDir) return false;
+    if (!selectedStrategy?.payload) return false;
+    if (runtime && runtime.ok === false) return false;
+    return true;
+  }, [files.length, loading, outputDir, runtime, selectedStrategy]);
+
+  const handleChangeStrategy = () => {
+    setAdvancedOpen(true);
+    // allow the panel to open before scrolling
+    requestAnimationFrame(() => {
+      strategySectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
   return (
     <div className="app">
       <header className="hero">
-        <div>
-          <p className="eyebrow">Video Dedupe Desktop</p>
-          <h1>北斗视频去重</h1>
-          {version ? <p className="muted">{version}</p> : null}
+        <div className="brand">
+          <div className="brand__logo-wrap">
+            <img className="brand__logo" src={appLogo} alt="北斗视频去重 Logo" />
+          </div>
+          <div>
+            <p className="eyebrow">Video Dedupe Desktop</p>
+            <h1>北斗视频去重</h1>
+            {version ? <p className="muted">{version}</p> : null}
+          </div>
         </div>
         <div className="status">
           <span className="dot" />
@@ -237,172 +300,137 @@ export default function App() {
 
       <main className="grid">
         <section className="panel">
-          <h2>操作区</h2>
+          <h2>开始去重</h2>
 
-          <div className="actions">
-            <button onClick={handleSelectVideos}>选择视频</button>
-            <button className="ghost" onClick={refreshStrategies} disabled={refreshingStrategies}>
-              {refreshingStrategies ? "刷新中..." : "刷新策略"}
-            </button>
-            <button className="ghost" onClick={handleRandomPick} disabled={strategies.length === 0}>
-              随机抽选
-            </button>
-            <button className="ghost" onClick={handleSelectOutputDir}>
-              选择输出目录
-            </button>
-            <button className="ghost" onClick={handleClearVideos} disabled={files.length === 0}>
-              清空视频
-            </button>
-            <button className="ghost" onClick={handleOpenPublish}>
-              一键发布
-            </button>
-            <button className="ghost" onClick={handleClosePublish}>
-              返回软件
-            </button>
-          </div>
+          <RuntimeBanner
+            runtime={runtime}
+            checkingRuntime={checkingRuntime}
+            installingRuntime={installingRuntime}
+            onInstallRuntime={handleInstallRuntime}
+          />
 
-          <div className="block">
-            <p className="label">运行环境</p>
-            <div className="output-box">
-              {checkingRuntime ? "检测中..." : runtime?.ok ? "就绪" : "未就绪（需要初始化）"}
-            </div>
-            {runtime?.activePython ? <div className="source">Python：{runtime.activePython}</div> : null}
-            {runtime?.ok === false ? (
-              <>
-                <div className="source">原因：{runtime.error || "Unknown error"}</div>
-                <button className="ghost" onClick={handleInstallRuntime} disabled={installingRuntime}>
-                  {installingRuntime ? "初始化中..." : "初始化环境"}
-                </button>
-              </>
-            ) : null}
-          </div>
+          <QuickStart
+            files={files}
+            outputDir={outputDir}
+            onSelectVideos={handleSelectVideos}
+            onRemoveVideo={handleRemoveVideo}
+            onClearVideos={handleClearVideos}
+            onSelectOutputDir={handleSelectOutputDir}
+            onOpenPath={handleOpenPath}
+          />
 
-          <div className="block">
-            <p className="label">已选视频</p>
-            <div className="file-list">
-              {files.length === 0 ? (
-                <span className="muted">暂无文件</span>
-              ) : (
-                files.slice(0, 5).map((file) => (
-                  <div key={file} className="file-item">
-                    <span className="file-path">{file}</span>
-                    <button className="mini" onClick={() => handleRemoveVideo(file)}>
-                      移除
-                    </button>
-                  </div>
-                ))
-              )}
-              {files.length > 5 ? <div className="muted">还有 {files.length - 5} 个文件...</div> : null}
+          <div className="card" style={{ marginTop: 12 }}>
+            <div className="row row--between">
+              <div>
+                <div className="card__title">当前策略</div>
+                <div className="muted" style={{ marginTop: 4 }}>
+                  {selectedStrategyIndex ? `策略 #${selectedStrategyIndex}` : "策略未加载"}
+                </div>
+              </div>
+              <button className="ghost" onClick={handleChangeStrategy}>
+                更换策略
+              </button>
             </div>
           </div>
 
-          <div className="block">
-            <p className="label">输出目录</p>
-            <div className="output-box">{outputDir || "未选择"}</div>
-          </div>
+          <div className="card" style={{ marginTop: 12 }}>
+            <div className="card__title">第 3 步：开始去重</div>
+            <div className="card__subtitle">确认信息无误后点击开始。</div>
 
-          <div className="block">
-            <p className="label">去重策略</p>
-            <div className="strategy-grid">
-              {strategies.map((strategy, index) => (
-                <label key={strategy.key} className={`strategy ${strategy.key === strategyKey ? "active" : ""}`}>
-                  <input
-                    type="radio"
-                    name="strategy"
-                    value={strategy.key}
-                    checked={strategy.key === strategyKey}
-                    onChange={() => setStrategyKey(strategy.key)}
-                  />
-                  <div>
-                    <div className="strategy-title">{`策略 #${index + 1}`}</div>
-                  </div>
-                </label>
+            <button className="primary" onClick={handleRun} disabled={!canRun}>
+              {loading ? "执行中..." : "开始去重"}
+            </button>
+
+            <div className="checklist" style={{ marginTop: 10 }}>
+              {blockers.map((line) => (
+                <div key={line} className="checklist__item">
+                  {line}
+                </div>
               ))}
             </div>
-
-            {/* Intentionally hide strategy details (params/source/url/current payload) from the UI. */}
-            {/* Keeping the state variables so behavior (runDedupe payload) stays the same. */}
-            {false ? (
-              <div className="source">
-                {strategySource} {strategyUrl} {strategyError}
-              </div>
-            ) : null}
           </div>
 
-          <button className="primary" onClick={handleRun} disabled={loading || (runtime && runtime.ok === false)}>
-            {loading ? "执行中..." : "开始去重"}
-          </button>
-        </section>
+          <div ref={strategySectionRef} style={{ marginTop: 12 }}>
+            <AdvancedTools
+              open={advancedOpen}
+              onToggle={() => setAdvancedOpen((v) => !v)}
+              strategies={strategies}
+              strategyKey={strategyKey}
+              onSelectStrategy={(k) => setStrategyKey(k)}
+              onRefreshStrategies={refreshStrategies}
+              refreshingStrategies={refreshingStrategies}
+              onRandomPick={handleRandomPick}
+              strategySource={strategySource}
+              strategyUrl={strategyUrl}
+              strategyError={strategyError}
+            />
+          </div>
 
-        <section className="panel">
-          <h2>结果区</h2>
-          {result ? (
-            <div className="result">
-              <div className="summary">
-                <div>
-                  <div className="value">{result.total}</div>
-                  <div className="muted">输入文件</div>
-                </div>
-                <div>
-                  <div className="value">{processedCount}</div>
-                  <div className="muted">已处理</div>
-                </div>
-                <div>
-                  <div className="value">{failedCount}</div>
-                  <div className="muted">失败</div>
-                </div>
-              </div>
-
-              {processedCount === 0 ? (
-                <div className="empty">暂无处理结果。</div>
-              ) : (
-                <div className="groups">
-                  {result.processedFiles.slice(0, 5).map((file) => (
-                    <div key={file} className="group">
-                      <div className="group-item keep">
-                        <div className="file-item">
-                          <span className="file-path" title={file} style={{ flex: 1, minWidth: 0 }}>
-                            {file}
-                          </span>
-                          <button className="mini" onClick={() => handleShowItemInFolder(file)}>
-                            文件夹
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {result.processedFiles.length > 5 ? (
-                    <div className="muted">还有 {result.processedFiles.length - 5} 个输出文件...</div>
-                  ) : null}
-                </div>
-              )}
-
-              {/* Keep outputSummary in data for any future features, but hide it from UI per delivery requirement. */}
-
-              {failedCount > 0 && Array.isArray(result.failedFiles) ? (
-                <div className="block">
-                  <p className="label">失败详情</p>
-                  <div className="file-list">
-                    {result.failedFiles.slice(0, 3).map((f) => (
-                      <details key={f.file} className="file-item" open>
-                        <summary className="file-path">{f.file}</summary>
-                        <pre className="code-box" style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
-                          {f.error || "未知错误"}
-                        </pre>
-                      </details>
-                    ))}
-                    {result.failedFiles.length > 3 ? (
-                      <div className="muted">还有 {result.failedFiles.length - 3} 个失败文件。</div>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
+          <div className="card" style={{ marginTop: 12 }}>
+            <div className="card__title">发布</div>
+            <div className="row row--gap" style={{ marginTop: 8 }}>
+              <button className="ghost" onClick={handleOpenPublish}>
+                打开发布窗口
+              </button>
+              <button className="ghost" onClick={handleClosePublish}>
+                关闭发布窗口
+              </button>
             </div>
-          ) : (
-            <div className="empty">暂无结果，开始去重后显示。</div>
-          )}
+          </div>
         </section>
+
+        <ResultsPanel
+          result={result}
+          loading={loading}
+          outputDir={outputDir}
+          onOpenPath={handleOpenPath}
+          onShowItemInFolder={handleShowItemInFolder}
+        />
       </main>
+
+      {/* 去重完成弹窗 */}
+      {showPublishModal && (
+        <div className="modal-overlay">
+          <div className="modal modal--success" onClick={(e) => e.stopPropagation()}>
+            <div className="success-icon">
+              <svg viewBox="0 0 52 52" className="checkmark-svg">
+                <circle className="checkmark-circle" cx="26" cy="26" r="24" fill="none" />
+                <path className="checkmark-check" fill="none" d="M14 27l8 8 16-16" />
+              </svg>
+            </div>
+            <div className="modal__title success-title">处理完成</div>
+            <div className="success-stats">
+              <div className="success-stat">
+                <span className="success-stat__value">{result?.total || files.length || 0}</span>
+                <span className="success-stat__label">输入文件</span>
+              </div>
+              <div className="success-stat success-stat--highlight">
+                <span className="success-stat__value">{result?.processedFiles?.length || 0}</span>
+                <span className="success-stat__label">处理成功</span>
+              </div>
+              <div className="success-stat">
+                <span className="success-stat__value">{result?.failedFiles?.length || 0}</span>
+                <span className="success-stat__label">失败</span>
+              </div>
+            </div>
+            <div className="success-message">
+              视频去重已完成，所有文件已保存到输出目录
+            </div>
+            <div className="modal__actions modal__actions--center">
+              <button className="ghost" onClick={() => setShowPublishModal(false)}>
+                查看结果
+              </button>
+              <button className="primary primary--large" onClick={() => {
+                setShowPublishModal(false);
+                handleOpenPublish();
+              }}>
+                <span className="btn-icon">🚀</span>
+                立即发布
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
