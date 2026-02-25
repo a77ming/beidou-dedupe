@@ -74,8 +74,27 @@ jobs:
         shell: bash
         run: |
           python -m venv .build/processor-win64/venv
-          .build/processor-win64/venv/Scripts/pip install pyinstaller moviepy opencv-python Pillow numpy imageio-ffmpeg
-          .build/processor-win64/venv/Scripts/pyinstaller --onefile --name video_dedupe_processor --distpath build/bin --workpath .build/processor-win64/work --specpath .build/processor-win64/spec tools/process_video.py
+          .build/processor-win64/venv/Scripts/python -m pip install --upgrade pip setuptools wheel
+          .build/processor-win64/venv/Scripts/python -m pip install pyinstaller moviepy opencv-python Pillow numpy imageio-ffmpeg imageio
+          .build/processor-win64/venv/Scripts/python -m PyInstaller \
+            --noconfirm \
+            --clean \
+            --onefile \
+            --name "video_dedupe_processor" \
+            --distpath build/bin \
+            --workpath .build/processor-win64/work \
+            --specpath .build/processor-win64/spec \
+            --paths "./processor" \
+            --copy-metadata "imageio" \
+            --copy-metadata "moviepy" \
+            --copy-metadata "imageio-ffmpeg" \
+            --hidden-import "cv2" \
+            --hidden-import "numpy" \
+            --hidden-import "PIL" \
+            --hidden-import "moviepy" \
+            --hidden-import "imageio_ffmpeg" \
+            tools/process_video.py
+          cp -f build/bin/video_dedupe_processor.exe build/bin/video_dedupe_processor.exe || true
 
       - name: Build Electron app
         run: npx electron-builder --win --publish never
